@@ -25,7 +25,8 @@ func Example_publish() {
 
 func Example_subscribe() {
 	sub := rpubsub.NewSubscriber(&rpubsub.SubOpts{
-		Addr: "localhost:6379",
+		Addr:  "localhost:6379",
+		Count: 10,
 	})
 
 	streams := make(chan rpubsub.Stream)

@@ -91,6 +91,9 @@ type SubOpts struct {
 	// Database to be selected after connecting to the Redis server.
 	DB int
 
+	// The maximum number of messages to return per topic at each read.
+	Count int64
+
 	// The manager that will return the initial last message ID for a given topic.
 	IDGetter IDGetter
 }
@@ -174,8 +177,9 @@ func (s *Subscriber) LastIDs() map[string]string {
 
 // reader is a message reader dedicated to a specific topic.
 type reader struct {
-	// The topic name.
 	topic string
+	count int64
+
 	// The last message ID.
 	lastID string
 
@@ -185,7 +189,7 @@ type reader struct {
 	// The Redis client for reading.
 	client *redis.Client
 
-	// Used to Graceful shutdown the reading goroutine.
+	// Used to gracefully shutdown the reading goroutine.
 	exitC     chan struct{}
 	waitGroup sync.WaitGroup
 }
@@ -194,6 +198,7 @@ type reader struct {
 func newReader(topic string, sendC chan<- Stream, opts *SubOpts) *reader {
 	return &reader{
 		topic:  topic,
+		count:  opts.Count,
 		lastID: opts.IDGetter.Get(topic),
 		sendC:  sendC,
 		client: redis.NewClient(&redis.Options{
@@ -215,6 +220,7 @@ func (r *reader) Start() {
 		for {
 			streams, err := r.client.XRead(&redis.XReadArgs{
 				Streams: []string{r.topic, r.lastID},
+				Count:   r.count,
 				Block:   0, // Wait for new messages without a timeout.
 			}).Result()
 			if err != nil {
@@ -228,15 +234,22 @@ func (r *reader) Start() {
 
 			// We are reading from only one topic.
 			xStream := streams[0]
-			stream := Stream{Topic: xStream.Stream}
-			for _, last := range xStream.Messages {
-				stream.Messages = append(stream.Messages, (Message)(last))
-				// Update the last message ID.
-				r.lastID = last.ID
+
+			count := len(xStream.Messages)
+			stream := Stream{
+				Topic:    xStream.Stream,
+				Messages: make([]Message, count),
+			}
+			for i := 0; i < count; i++ {
+				stream.Messages[i] = (Message)(xStream.Messages[i])
 			}
 
 			select {
 			case r.sendC <- stream:
+				// stream has been sent successfully.
+
+				// Update the last message ID.
+				r.lastID = stream.Messages[count-1].ID
 			case <-r.exitC:
 				return
 			}
