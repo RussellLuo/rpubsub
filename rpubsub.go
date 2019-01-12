@@ -92,6 +92,7 @@ type SubOpts struct {
 	DB int
 
 	// The maximum number of messages to return per topic at each read.
+	// Zero value means no limit.
 	Count int64
 
 	// The manager that will return the initial last message ID for a given topic.
@@ -224,10 +225,8 @@ func (r *reader) Start() {
 				Block:   0, // Wait for new messages without a timeout.
 			}).Result()
 			if err != nil {
-				str := err.Error()
-				if strings.Contains(str, "use of closed network connection") { //||
-					//strings.Contains(str, "client is closed") {
-					// s.client has been closed.
+				if strings.Contains(err.Error(), "use of closed network connection") {
+					// r.client has been closed.
 					return
 				}
 			}
@@ -260,7 +259,7 @@ func (r *reader) Start() {
 // Stop closes the Redis client for reading, and gracefully stops the reading goroutine.
 func (r *reader) Stop() {
 	// Unblock the connection which is waiting for reading.
-	// FIXME: Wait until https://github.com/go-redis/redis/issues/933 is fixed.
+	// See https://github.com/go-redis/redis/issues/933.
 	r.client.Close()
 
 	close(r.exitC)
