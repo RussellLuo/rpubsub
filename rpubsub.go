@@ -3,6 +3,7 @@ package rpubsub
 import (
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/go-redis/redis"
 )
@@ -96,13 +97,21 @@ type SubOpts struct {
 	Count int64
 
 	// The manager that will return the initial last message ID for a given topic.
-	IDGetter IDGetter
+	Snapshotter Snapshotter
 }
 
 func (o *SubOpts) init() {
-	if o.IDGetter == nil {
-		o.IDGetter = &ZeroIDGetter{}
+	if o.Snapshotter == nil {
+		o.Snapshotter = &NilSnapshotter{}
 	}
+}
+
+// State represents the subscribing state of a specific topic.
+type SubState struct {
+	// The ID of the last received message.
+	LastID string
+	// The number of times LastID is changed since the last snapshot.
+	Changes uint64
 }
 
 // Subscriber provides reliable subscribing capability backed by Redis Streams.
@@ -127,6 +136,9 @@ func NewSubscriber(opts *SubOpts) *Subscriber {
 // Subscribe registers an interest in the given topics.
 func (s *Subscriber) Subscribe(c chan<- Stream, topics ...string) {
 	s.mu.Lock()
+
+	before := len(s.topics)
+
 	for _, topic := range topics {
 		// Only add topics that have not been subscribed.
 		if _, ok := s.topics[topic]; !ok {
@@ -134,6 +146,12 @@ func (s *Subscriber) Subscribe(c chan<- Stream, topics ...string) {
 			s.topics[topic].Start()
 		}
 	}
+
+	if before == 0 && len(s.topics) > 0 {
+		// Subscribed topics become non-empty.
+		s.opts.Snapshotter.Open(s)
+	}
+
 	s.mu.Unlock()
 }
 
@@ -141,6 +159,9 @@ func (s *Subscriber) Subscribe(c chan<- Stream, topics ...string) {
 // Specifying no topics indicates to unsubscribe all the topics.
 func (s *Subscriber) Unsubscribe(topics ...string) {
 	s.mu.Lock()
+
+	before := len(s.topics)
+
 	if len(topics) == 0 {
 		// Unsubscribe all the topics.
 		for topic, reader := range s.topics {
@@ -157,11 +178,17 @@ func (s *Subscriber) Unsubscribe(topics ...string) {
 			}
 		}
 	}
+
+	if before > 0 && len(s.topics) == 0 {
+		// Subscribed topics become empty.
+		s.opts.Snapshotter.Close()
+	}
+
 	s.mu.Unlock()
 }
 
-// LastIDs returns a mapping snapshot from topics to their respective last message IDs.
-func (s *Subscriber) LastIDs() map[string]string {
+// States returns a mapping from topics to their respective subscribing state.
+func (s *Subscriber) States() map[string]SubState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -169,11 +196,25 @@ func (s *Subscriber) LastIDs() map[string]string {
 		return nil
 	}
 
-	lastIDs := make(map[string]string)
+	states := make(map[string]SubState)
 	for topic, reader := range s.topics {
-		lastIDs[topic] = reader.lastID
+		states[topic] = reader.State()
 	}
-	return lastIDs
+	return states
+}
+
+// Snapshot notifies the subscriber that the given states have already been snapshotted.
+func (s *Subscriber) Snapshot(states map[string]SubState) {
+	s.mu.Lock()
+
+	for topic, state := range states {
+		if reader, ok := s.topics[topic]; ok {
+			// Decrement the number of changes that has been snapshotted.
+			reader.DecChanges(state.Changes)
+		}
+	}
+
+	s.mu.Unlock()
 }
 
 // reader is a message reader dedicated to a specific topic.
@@ -181,8 +222,8 @@ type reader struct {
 	topic string
 	count int64
 
-	// The last message ID.
-	lastID string
+	lastID  *atomic.Value // string
+	changes uint64
 
 	// The channel to which the message is sent.
 	sendC chan<- Stream
@@ -197,10 +238,13 @@ type reader struct {
 
 // newReader creates an instance of reader with the given options.
 func newReader(topic string, sendC chan<- Stream, opts *SubOpts) *reader {
+	lastID := new(atomic.Value)
+	lastID.Store(opts.Snapshotter.Load(topic))
+
 	return &reader{
 		topic:  topic,
 		count:  opts.Count,
-		lastID: opts.IDGetter.Get(topic),
+		lastID: lastID,
 		sendC:  sendC,
 		client: redis.NewClient(&redis.Options{
 			Addr: opts.Addr,
@@ -212,6 +256,19 @@ func newReader(topic string, sendC chan<- Stream, opts *SubOpts) *reader {
 	}
 }
 
+// State atomically returns the subscribing state.
+func (r *reader) State() SubState {
+	return SubState{
+		LastID:  r.lastID.Load().(string),
+		Changes: atomic.LoadUint64(&r.changes),
+	}
+}
+
+// DecChanges atomically decrements delta from the internal count of changes.
+func (r *reader) DecChanges(delta uint64) {
+	atomic.AddUint64(&r.changes, ^uint64(delta-1))
+}
+
 // Start starts a goroutine to continuously read data from subscribed topics.
 func (r *reader) Start() {
 	r.waitGroup.Add(1)
@@ -219,8 +276,9 @@ func (r *reader) Start() {
 		defer r.waitGroup.Done()
 
 		for {
+			lastID := r.lastID.Load().(string)
 			streams, err := r.client.XRead(&redis.XReadArgs{
-				Streams: []string{r.topic, r.lastID},
+				Streams: []string{r.topic, lastID},
 				Count:   r.count,
 				Block:   0, // Wait for new messages without a timeout.
 			}).Result()
@@ -247,8 +305,9 @@ func (r *reader) Start() {
 			case r.sendC <- stream:
 				// stream has been sent successfully.
 
-				// Update the last message ID.
-				r.lastID = stream.Messages[count-1].ID
+				// Update the state.
+				r.lastID.Store(stream.Messages[count-1].ID)
+				atomic.AddUint64(&r.changes, uint64(count))
 			case <-r.exitC:
 				return
 			}
