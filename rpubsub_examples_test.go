@@ -2,6 +2,7 @@ package rpubsub_test
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/RussellLuo/rpubsub"
 )
@@ -27,6 +28,33 @@ func Example_subscribe() {
 	sub := rpubsub.NewSubscriber(&rpubsub.SubOpts{
 		Addr:  "localhost:6379",
 		Count: 10,
+	})
+
+	streams := make(chan rpubsub.Stream)
+	sub.Subscribe(streams, "test-0")
+	defer sub.Unsubscribe()
+
+	for stream := range streams {
+		fmt.Printf("Received messages %+v from topic %+v\n", stream.Messages, stream.Topic)
+	}
+}
+
+func Example_subscribe_with_snapshot() {
+	snap := rpubsub.NewRedisSnapshotter(&rpubsub.RedisSnapshotterOpts{
+		Addr:         "localhost:6379",
+		Key:          "node1",
+		Expiration:   24 * time.Hour,
+		SaveInterval: 100 * time.Millisecond,
+		SavePoint: &rpubsub.SavePoint{
+			Duration: time.Second,
+			Changes:  10,
+		},
+	})
+
+	sub := rpubsub.NewSubscriber(&rpubsub.SubOpts{
+		Addr:        "localhost:6379",
+		Count:       10,
+		Snapshotter: snap,
 	})
 
 	streams := make(chan rpubsub.Stream)
