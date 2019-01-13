@@ -136,7 +136,6 @@ func NewSubscriber(opts *SubOpts) *Subscriber {
 // Subscribe registers an interest in the given topics.
 func (s *Subscriber) Subscribe(c chan<- Stream, topics ...string) {
 	s.mu.Lock()
-
 	before := len(s.topics)
 
 	for _, topic := range topics {
@@ -147,19 +146,19 @@ func (s *Subscriber) Subscribe(c chan<- Stream, topics ...string) {
 		}
 	}
 
-	if before == 0 && len(s.topics) > 0 {
+	after := len(s.topics)
+	s.mu.Unlock()
+
+	if before == 0 && after > 0 {
 		// Subscribed topics become non-empty.
 		s.opts.Snapshotter.Open(s)
 	}
-
-	s.mu.Unlock()
 }
 
 // Unsubscribe unregisters the interest in the given topics.
 // Specifying no topics indicates to unsubscribe all the topics.
 func (s *Subscriber) Unsubscribe(topics ...string) {
 	s.mu.Lock()
-
 	before := len(s.topics)
 
 	if len(topics) == 0 {
@@ -179,12 +178,13 @@ func (s *Subscriber) Unsubscribe(topics ...string) {
 		}
 	}
 
-	if before > 0 && len(s.topics) == 0 {
+	after := len(s.topics)
+	s.mu.Unlock()
+
+	if before > 0 && after == 0 {
 		// Subscribed topics become empty.
 		s.opts.Snapshotter.Close()
 	}
-
-	s.mu.Unlock()
 }
 
 // States returns a mapping from topics to their respective subscribing state.
