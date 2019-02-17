@@ -5,12 +5,13 @@ import (
 	"time"
 
 	"github.com/RussellLuo/rpubsub"
+	"github.com/go-redis/redis"
 )
 
 func Example_publish() {
-	pub := rpubsub.NewPublisher(&rpubsub.PubOpts{
+	pub := rpubsub.NewPublisher(redis.NewClient(&redis.Options{
 		Addr: "localhost:6379",
-	})
+	}))
 
 	id, _ := pub.Publish(&rpubsub.PubArgs{
 		Topic: "test-0",
@@ -26,7 +27,11 @@ func Example_publish() {
 
 func Example_subscribe() {
 	sub := rpubsub.NewSubscriber(&rpubsub.SubOpts{
-		Addr:  "localhost:6379",
+		NewRedisClient: func() rpubsub.RedisClient {
+			return redis.NewClient(&redis.Options{
+				Addr: "localhost:6379",
+			})
+		},
 		Count: 10,
 	})
 
@@ -52,7 +57,11 @@ func Example_subscribe_with_snapshot() {
 	})
 
 	sub := rpubsub.NewSubscriber(&rpubsub.SubOpts{
-		Addr:        "localhost:6379",
+		NewRedisClient: func() rpubsub.RedisClient {
+			return redis.NewClient(&redis.Options{
+				Addr: "localhost:6379",
+			})
+		},
 		Count:       10,
 		Snapshotter: snap,
 	})

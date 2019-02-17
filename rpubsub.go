@@ -18,16 +18,9 @@ type Stream struct {
 	Messages []Message
 }
 
-type PubOpts struct {
-	// host:port address of the Redis server.
-	Addr string
-
-	// Database to be selected after connecting to the Redis server.
-	DB int
-
-	// Maximum number of socket connections.
-	// Default is 10 connections per every CPU as reported by runtime.NumCPU.
-	PoolSize int
+type RedisClient interface {
+	redis.Cmdable
+	Close() error
 }
 
 type PubArgs struct {
@@ -59,18 +52,12 @@ func (a *PubArgs) init() {
 // Publisher provides reliable publishing capability backed by Redis Streams.
 type Publisher struct {
 	// The Redis client for publishing.
-	client *redis.Client
+	client RedisClient
 }
 
 // NewPublisher creates an instance of Publisher with the given options.
-func NewPublisher(opts *PubOpts) *Publisher {
-	return &Publisher{
-		client: redis.NewClient(&redis.Options{
-			Addr:     opts.Addr,
-			DB:       opts.DB,
-			PoolSize: opts.PoolSize,
-		}),
-	}
+func NewPublisher(client RedisClient) *Publisher {
+	return &Publisher{client: client}
 }
 
 // Publish sends a message to the given topic.
@@ -86,11 +73,7 @@ func (p *Publisher) Publish(args *PubArgs) (string, error) {
 }
 
 type SubOpts struct {
-	// host:port address of the Redis server.
-	Addr string
-
-	// Database to be selected after connecting to the Redis server.
-	DB int
+	NewRedisClient func() RedisClient
 
 	// The maximum number of messages to return per topic at each read.
 	// Zero value means no limit.
@@ -229,7 +212,7 @@ type reader struct {
 	sendC chan<- Stream
 
 	// The Redis client for reading.
-	client *redis.Client
+	client RedisClient
 
 	// Used to gracefully shutdown the reading goroutine.
 	exitC     chan struct{}
@@ -246,13 +229,12 @@ func newReader(topic string, sendC chan<- Stream, opts *SubOpts) *reader {
 		count:  opts.Count,
 		lastID: lastID,
 		sendC:  sendC,
-		client: redis.NewClient(&redis.Options{
-			Addr: opts.Addr,
-			DB:   opts.DB,
-			// Only need one connection for reading.
-			PoolSize: 1,
-		}),
-		exitC: make(chan struct{}),
+		// Actually, only one connection is needed for reading.
+		// But we do not force the pool-size to be one, since go-redis's
+		// connection pool will establish only one connection if we read
+		// serially, even if the pool-size is greater than one.
+		client: opts.NewRedisClient(),
+		exitC:  make(chan struct{}),
 	}
 }
 
