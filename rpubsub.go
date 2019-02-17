@@ -96,7 +96,7 @@ type SubOpts struct {
 	// Zero value means no limit.
 	Count int64
 
-	// The manager that will return the initial last message ID for a given topic.
+	// The manager that will periodically snapshot the subscribing state.
 	Snapshotter Snapshotter
 }
 

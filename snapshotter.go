@@ -48,7 +48,7 @@ type RedisSnapshotter struct {
 	opts         *RedisSnapshotterOpts
 	lastSaveTime time.Time
 
-	// Used to gracefully shutdown the reading goroutine.
+	// Used to gracefully shutdown the snapshotting goroutine.
 	exitC     chan struct{}
 	waitGroup sync.WaitGroup
 
@@ -123,11 +123,11 @@ func (s *RedisSnapshotter) Open(sub *Subscriber) {
 	go func() {
 		defer s.waitGroup.Done()
 
-		snapshotTicker := time.NewTicker(s.opts.SaveInterval)
+		saveTicker := time.NewTicker(s.opts.SaveInterval)
 
 		for {
 			select {
-			case <-snapshotTicker.C:
+			case <-saveTicker.C:
 			case <-s.exitC:
 				break
 			}
@@ -147,13 +147,9 @@ func (s *RedisSnapshotter) Open(sub *Subscriber) {
 			}
 		}
 
-		snapshotTicker.Stop()
+		saveTicker.Stop()
 
-		// Force to save once again before exits.
-		_, _, ids := s.getStates(sub)
-		if err := s.save(ids); err != nil {
-			// TODO: logging?
-		}
+		// Question: should we save once again before exits?
 	}()
 }
 
