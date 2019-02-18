@@ -18,11 +18,13 @@ type Stream struct {
 	Messages []Message
 }
 
+// RedisClient is the interface that both redis.Client and redis.ClusterClient implement.
 type RedisClient interface {
 	redis.Cmdable
 	Close() error
 }
 
+// PubArgs holds the arguments for publishing.
 type PubArgs struct {
 	// The topic to which messages will be published.
 	Topic string
@@ -72,7 +74,9 @@ func (p *Publisher) Publish(args *PubArgs) (string, error) {
 	}).Result()
 }
 
+// SubOpts holds the options for subscribing.
 type SubOpts struct {
+	// The constructor for creating the Redis client for each topic.
 	NewRedisClient func() RedisClient
 
 	// The maximum number of messages to return per topic at each read.
@@ -89,7 +93,7 @@ func (o *SubOpts) init() {
 	}
 }
 
-// State represents the subscribing state of a specific topic.
+// SubState represents the subscribing state of a specific topic.
 type SubState struct {
 	// The ID of the last received message.
 	LastID string
