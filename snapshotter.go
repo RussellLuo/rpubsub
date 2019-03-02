@@ -8,12 +8,19 @@ import (
 	"github.com/go-redis/redis"
 )
 
-// Snapshotter is a manager that will periodically snapshot the subscribing
-// state for a specific subscriber.
+// Snapshotter is a manager that will snapshot the subscribing state for a specific subscriber.
 type Snapshotter interface {
+	// Load returns the ID of the last received message for topic.
 	Load(topic string) string
-	Open(sub *Subscriber)
-	Close()
+
+	// Store saves lastID as the ID of the last received message for topic.
+	Store(topic, lastID string) error
+
+	// Start starts a loop that will periodically save the subscribing state for all the topics subscribed by sub.
+	Start(sub *Subscriber)
+
+	// Stop stops the loop started by Start.
+	Stop()
 }
 
 type SavePoint struct {
@@ -28,9 +35,13 @@ func (s *NilSnapshotter) Load(topic string) string {
 	return "0-0"
 }
 
-func (s *NilSnapshotter) Open(sub *Subscriber) {}
+func (s *NilSnapshotter) Store(topic, lastID string) error {
+	return nil
+}
 
-func (s *NilSnapshotter) Close() {}
+func (s *NilSnapshotter) Start(sub *Subscriber) {}
+
+func (s *NilSnapshotter) Stop() {}
 
 type RedisSnapshotterOpts struct {
 	Addr       string
@@ -87,38 +98,14 @@ func (s *RedisSnapshotter) Load(topic string) string {
 	return "0-0"
 }
 
-func (s *RedisSnapshotter) getStates(sub *Subscriber) (map[string]SubState, uint64, map[string]string) {
-	states := sub.States()
-	if len(states) == 0 {
-		return states, uint64(0), nil
-	}
-
-	totalChanges := uint64(0)
-	ids := make(map[string]string, len(states))
-	for topic, state := range states {
-		totalChanges = totalChanges + state.Changes
-		ids[topic] = state.LastID
-	}
-	return states, totalChanges, ids
-}
-
-func (s *RedisSnapshotter) save(ids map[string]string) error {
-	if len(ids) == 0 {
-		return nil
-	}
-
-	bytes, err := json.Marshal(ids)
-	if err != nil {
+func (s *RedisSnapshotter) Store(topic, lastID string) error {
+	if _, err := s.client.Set(s.opts.Key, lastID, s.opts.Expiration).Result(); err != nil {
 		return err
 	}
-	if _, err := s.client.Set(s.opts.Key, bytes, s.opts.Expiration).Result(); err != nil {
-		return err
-	}
-
 	return nil
 }
 
-func (s *RedisSnapshotter) Open(sub *Subscriber) {
+func (s *RedisSnapshotter) Start(sub *Subscriber) {
 	s.waitGroup.Add(1)
 	go func() {
 		defer s.waitGroup.Done()
@@ -132,28 +119,26 @@ func (s *RedisSnapshotter) Open(sub *Subscriber) {
 				break
 			}
 
-			states, totalChanges, ids := s.getStates(sub)
-
 			now := time.Now()
-			// See https://github.com/antirez/redis/blob/aced0328e3fb532496afa1a30eb4227316aef3bd/src/server.c#L1266-L1267.
-			if totalChanges >= s.opts.SavePoint.Changes &&
-				now.Sub(s.lastSaveTime) > s.opts.SavePoint.Duration {
-				if err := s.save(ids); err != nil {
-					// TODO: logging?
-					continue
+			if now.Sub(s.lastSaveTime) > s.opts.SavePoint.Duration {
+				for topic, state := range sub.States() {
+					// See https://github.com/antirez/redis/blob/aced0328e3fb532496afa1a30eb4227316aef3bd/src/server.c#L1266-L1267.
+					if state.Changes >= s.opts.SavePoint.Changes {
+						if err := s.Store(topic, state.LastID); err != nil {
+							// TODO: logging?
+							continue
+						}
+					}
 				}
 				s.lastSaveTime = now
-				sub.Snapshot(states)
 			}
 		}
 
 		saveTicker.Stop()
-
-		// Question: should we save once again before exits?
 	}()
 }
 
-func (s *RedisSnapshotter) Close() {
+func (s *RedisSnapshotter) Stop() {
 	close(s.exitC)
 	s.waitGroup.Wait()
 }

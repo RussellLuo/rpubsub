@@ -83,7 +83,7 @@ type SubOpts struct {
 	// Zero value means no limit.
 	Count int64
 
-	// The manager that will periodically snapshot the subscribing state.
+	// The snapshotter that will snapshot the subscribing state.
 	Snapshotter Snapshotter
 }
 
@@ -138,7 +138,7 @@ func (s *Subscriber) Subscribe(c chan<- Stream, topics ...string) {
 
 	if before == 0 && after > 0 {
 		// Subscribed topics become non-empty.
-		s.opts.Snapshotter.Open(s)
+		s.opts.Snapshotter.Start(s)
 	}
 }
 
@@ -151,7 +151,9 @@ func (s *Subscriber) Unsubscribe(topics ...string) {
 	if len(topics) == 0 {
 		// Unsubscribe all the topics.
 		for topic, reader := range s.topics {
+			// TODO: avoid code repetition?
 			reader.Stop()
+			s.opts.Snapshotter.Store(topic, reader.State().LastID)
 			delete(s.topics, topic)
 		}
 	} else {
@@ -159,7 +161,9 @@ func (s *Subscriber) Unsubscribe(topics ...string) {
 		for _, topic := range topics {
 			// Only remove topics that have been subscribed.
 			if reader, ok := s.topics[topic]; ok {
+				// TODO: avoid code repetition?
 				reader.Stop()
+				s.opts.Snapshotter.Store(topic, reader.State().LastID)
 				delete(s.topics, topic)
 			}
 		}
@@ -170,7 +174,7 @@ func (s *Subscriber) Unsubscribe(topics ...string) {
 
 	if before > 0 && after == 0 {
 		// Subscribed topics become empty.
-		s.opts.Snapshotter.Close()
+		s.opts.Snapshotter.Stop()
 	}
 }
 
