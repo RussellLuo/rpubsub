@@ -44,7 +44,7 @@ func Example_subscribe() {
 	}
 }
 
-func Example_subscribe_with_snapshot() {
+func Example_subscribeWithSnapshot() {
 	snap := rpubsub.NewRedisSnapshotter(
 		redis.NewClient(&redis.Options{
 			Addr: "localhost:6379",
@@ -52,6 +52,8 @@ func Example_subscribe_with_snapshot() {
 		&rpubsub.RedisSnapshotterOpts{
 			KeyPrefix:  "node1:",
 			Expiration: 24 * time.Hour,
+			// Save the last message ID every 1 second,
+			// if there is at least 1 message received in the topic.
 			SavePoint: &rpubsub.SavePoint{
 				Duration: time.Second,
 				Changes:  1,

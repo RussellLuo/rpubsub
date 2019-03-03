@@ -7,8 +7,13 @@ Reliable Pub/Sub backed by [Redis Streams][1].
 
 
 ```bash
-$ go get github.com/RussellLuo/rpubsub
+$ go get -u github.com/RussellLuo/rpubsub
 ```
+
+
+## Design
+
+TODO
 
 
 ## Documentation
@@ -16,5 +21,11 @@ $ go get github.com/RussellLuo/rpubsub
 Check out the [Godoc][2].
 
 
+## License
+
+[MIT][3]
+
+
 [1]: https://redis.io/topics/streams-intro
 [2]: https://godoc.org/github.com/RussellLuo/rpubsub
+[3]: http://opensource.org/licenses/MIT
