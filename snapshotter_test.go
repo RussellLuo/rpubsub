@@ -14,13 +14,8 @@ func TestRedisSnapshotter_LoadAndStore(t *testing.T) {
 			Addr: "localhost:6379",
 		}),
 		&rpubsub.RedisSnapshotterOpts{
-			KeyPrefix:    "node1:",
-			Expiration:   24 * time.Hour,
-			SaveInterval: 100 * time.Millisecond,
-			SavePoint: &rpubsub.SavePoint{
-				Duration: time.Second,
-				Changes:  10,
-			},
+			KeyPrefix:  "node1:",
+			Expiration: 24 * time.Hour,
 		},
 	)
 
@@ -65,12 +60,11 @@ func TestRedisSnapshotter_StartAndStop(t *testing.T) {
 			Addr: "localhost:6379",
 		}),
 		&rpubsub.RedisSnapshotterOpts{
-			KeyPrefix:    "node1:",
-			Expiration:   24 * time.Hour,
-			SaveInterval: 100 * time.Millisecond,
+			KeyPrefix:  "node1:",
+			Expiration: 24 * time.Hour,
 			SavePoint: &rpubsub.SavePoint{
 				Duration: time.Second,
-				Changes:  10,
+				Changes:  1,
 			},
 		},
 	)
@@ -87,11 +81,11 @@ func TestRedisSnapshotter_StartAndStop(t *testing.T) {
 				return map[string]rpubsub.SubState{
 					topic: {
 						LastID:  "0-1",
-						Changes: 5,
+						Changes: 0,
 					},
 				}
 			},
-			1100 * time.Millisecond,
+			1010 * time.Millisecond,
 			"0-0",
 		},
 		{
@@ -99,12 +93,24 @@ func TestRedisSnapshotter_StartAndStop(t *testing.T) {
 				return map[string]rpubsub.SubState{
 					topic: {
 						LastID:  "0-1",
-						Changes: 10,
+						Changes: 1,
 					},
 				}
 			},
-			1100 * time.Millisecond,
+			1010 * time.Millisecond,
 			"0-1",
+		},
+		{
+			func() map[string]rpubsub.SubState {
+				return map[string]rpubsub.SubState{
+					topic: {
+						LastID:  "0-2",
+						Changes: 2,
+					},
+				}
+			},
+			1010 * time.Millisecond,
+			"0-2",
 		},
 	}
 

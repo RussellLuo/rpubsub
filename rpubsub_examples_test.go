@@ -50,12 +50,11 @@ func Example_subscribe_with_snapshot() {
 			Addr: "localhost:6379",
 		}),
 		&rpubsub.RedisSnapshotterOpts{
-			KeyPrefix:    "node1:",
-			Expiration:   24 * time.Hour,
-			SaveInterval: 100 * time.Millisecond,
+			KeyPrefix:  "node1:",
+			Expiration: 24 * time.Hour,
 			SavePoint: &rpubsub.SavePoint{
 				Duration: time.Second,
-				Changes:  10,
+				Changes:  1,
 			},
 		},
 	)

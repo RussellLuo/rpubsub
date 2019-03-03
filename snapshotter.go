@@ -29,6 +29,9 @@ type Snapshotter interface {
 	Stop()
 }
 
+// SavePoint configures a snapshotter to have it save the last message ID
+// for a topic every `Duration`, if there are at least `Changes` messages
+// received in the topic.
 type SavePoint struct {
 	Duration time.Duration
 	Changes  uint64
@@ -56,16 +59,14 @@ type RedisSnapshotterOpts struct {
 	// The TTL (time to live) of the value holden by the above key.
 	Expiration time.Duration
 
-	SaveInterval time.Duration
-	SavePoint    *SavePoint
+	SavePoint *SavePoint
 }
 
 // RedisSnapshotter is a manager that will save the subscribing state to Redis.
 type RedisSnapshotter struct {
 	client RedisClient
 
-	opts         *RedisSnapshotterOpts
-	lastSaveTime time.Time
+	opts *RedisSnapshotterOpts
 
 	// Used to gracefully shutdown the snapshotting goroutine.
 	exitC     chan struct{}
@@ -74,10 +75,9 @@ type RedisSnapshotter struct {
 
 func NewRedisSnapshotter(client RedisClient, opts *RedisSnapshotterOpts) *RedisSnapshotter {
 	return &RedisSnapshotter{
-		client:       client,
-		opts:         opts,
-		lastSaveTime: time.Now(),
-		exitC:        make(chan struct{}),
+		client: client,
+		opts:   opts,
+		exitC:  make(chan struct{}),
 	}
 }
 
@@ -100,16 +100,12 @@ func (s *RedisSnapshotter) Store(topic, lastID string) error {
 }
 
 func (s *RedisSnapshotter) snapshot(states map[string]SubState, force bool) {
-	now := time.Now()
-	if force || now.Sub(s.lastSaveTime) > s.opts.SavePoint.Duration {
-		for topic, state := range states {
-			// See https://github.com/antirez/redis/blob/aced0328e3fb532496afa1a30eb4227316aef3bd/src/server.c#L1266-L1267.
-			if force || state.Changes >= s.opts.SavePoint.Changes {
-				if err := s.Store(topic, state.LastID); err != nil {
-					// TODO: logging?
-					continue
-				}
-				s.lastSaveTime = now
+	for topic, state := range states {
+		// See https://github.com/antirez/redis/blob/aced0328e3fb532496afa1a30eb4227316aef3bd/src/server.c#L1266-L1267.
+		if force || state.Changes >= s.opts.SavePoint.Changes {
+			if err := s.Store(topic, state.LastID); err != nil {
+				// TODO: logging?
+				continue
 			}
 		}
 	}
@@ -120,7 +116,7 @@ func (s *RedisSnapshotter) Start(monitor SubMonitor) {
 	go func() {
 		defer s.waitGroup.Done()
 
-		saveTicker := time.NewTicker(s.opts.SaveInterval)
+		saveTicker := time.NewTicker(s.opts.SavePoint.Duration)
 		defer saveTicker.Stop()
 
 		for {
