@@ -45,16 +45,20 @@ func Example_subscribe() {
 }
 
 func Example_subscribe_with_snapshot() {
-	snap := rpubsub.NewRedisSnapshotter(&rpubsub.RedisSnapshotterOpts{
-		Addr:         "localhost:6379",
-		Key:          "node1",
-		Expiration:   24 * time.Hour,
-		SaveInterval: 100 * time.Millisecond,
-		SavePoint: &rpubsub.SavePoint{
-			Duration: time.Second,
-			Changes:  10,
+	snap := rpubsub.NewRedisSnapshotter(
+		redis.NewClient(&redis.Options{
+			Addr: "localhost:6379",
+		}),
+		&rpubsub.RedisSnapshotterOpts{
+			KeyPrefix:    "node1:",
+			Expiration:   24 * time.Hour,
+			SaveInterval: 100 * time.Millisecond,
+			SavePoint: &rpubsub.SavePoint{
+				Duration: time.Second,
+				Changes:  10,
+			},
 		},
-	})
+	)
 
 	sub := rpubsub.NewSubscriber(&rpubsub.SubOpts{
 		NewRedisClient: func() rpubsub.RedisClient {
