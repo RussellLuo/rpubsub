@@ -194,8 +194,8 @@ func (s *Subscriber) States() map[string]SubState {
 	return states
 }
 
-// Snapshot notifies the subscriber that the given states have already been snapshotted.
-func (s *Subscriber) Snapshot(states map[string]SubState) {
+// Acknowledge notifies the subscriber that the given states have already been snapshotted.
+func (s *Subscriber) Acknowledge(states map[string]SubState) {
 	s.mu.Lock()
 
 	for topic, state := range states {

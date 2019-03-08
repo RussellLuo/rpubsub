@@ -54,6 +54,8 @@ func (s *mockSubMonitor) States() map[string]rpubsub.SubState {
 	return s.statesGetter()
 }
 
+func (s *mockSubMonitor) Acknowledge(states map[string]rpubsub.SubState) {}
+
 func TestRedisSnapshotter_StartAndStop(t *testing.T) {
 	snap := rpubsub.NewRedisSnapshotter(
 		redis.NewClient(&redis.Options{

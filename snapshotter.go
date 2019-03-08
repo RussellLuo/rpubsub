@@ -5,10 +5,11 @@ import (
 	"time"
 )
 
-// SubMonitor is a monitor that can sample and return the current subscribing
-// state for a specific subscriber.
+// SubMonitor is the minimum interface that a subscriber must implement
+// for snapshotting.
 type SubMonitor interface {
 	States() map[string]SubState
+	Acknowledge(states map[string]SubState)
 }
 
 // Snapshotter is a manager that will snapshot the subscribing state
@@ -99,16 +100,22 @@ func (s *RedisSnapshotter) Store(topic, lastID string) error {
 	return nil
 }
 
-func (s *RedisSnapshotter) snapshot(states map[string]SubState, force bool) {
-	for topic, state := range states {
+func (s *RedisSnapshotter) snapshot(monitor SubMonitor, force bool) {
+	snapshotted := make(map[string]SubState)
+
+	for topic, state := range monitor.States() {
 		// See https://github.com/antirez/redis/blob/aced0328e3fb532496afa1a30eb4227316aef3bd/src/server.c#L1266-L1267.
 		if force || state.Changes >= s.opts.SavePoint.Changes {
 			if err := s.Store(topic, state.LastID); err != nil {
 				// TODO: logging?
 				continue
 			}
+
+			snapshotted[topic] = state
 		}
 	}
+
+	monitor.Acknowledge(snapshotted)
 }
 
 func (s *RedisSnapshotter) Start(monitor SubMonitor) {
@@ -123,11 +130,11 @@ func (s *RedisSnapshotter) Start(monitor SubMonitor) {
 			select {
 			case <-saveTicker.C:
 			case <-s.exitC:
-				s.snapshot(monitor.States(), true)
+				s.snapshot(monitor, true)
 				return
 			}
 
-			s.snapshot(monitor.States(), false)
+			s.snapshot(monitor, false)
 		}
 	}()
 }
